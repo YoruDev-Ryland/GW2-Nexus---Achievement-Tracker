@@ -110,7 +110,7 @@ namespace UI {
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
             ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize |
-            ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToDisplayFront);
+            ImGuiWindowFlags_NoFocusOnAppearing);
 
         if (tex) {
             ImGui::Image((ImTextureID)tex, ImVec2(IMG, IMG));
@@ -255,12 +255,13 @@ namespace UI {
         if (!s_ShowDeleteConfirm) return;
 
         ImGui::SetNextWindowSize(ImVec2(340, 0), ImGuiCond_Always);
-        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+        ImVec2 dispSz = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos(ImVec2(dispSz.x * 0.5f, dispSz.y * 0.5f),
                                 ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         bool open = true;
         if (ImGui::Begin("Confirm##del_confirm", &open,
             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToDisplayFront))
+            ImGuiWindowFlags_NoMove))
         {
             ImGui::TextWrapped("Stop tracking:");
             ImGui::Spacing();
@@ -372,7 +373,7 @@ namespace UI {
         static char s_ApiKeyBuf[256] = "";
         static bool s_ApiKeyBufInit  = false;
         if (!s_ApiKeyBufInit) {
-            std::strncpy(s_ApiKeyBuf, g_Settings.ApiKey.c_str(), sizeof(s_ApiKeyBuf)-1);
+            strncpy_s(s_ApiKeyBuf, sizeof(s_ApiKeyBuf), g_Settings.ApiKey.c_str(), _TRUNCATE);
             s_ApiKeyBufInit = true;
         }
         ImGui::SetNextItemWidth(-1);
