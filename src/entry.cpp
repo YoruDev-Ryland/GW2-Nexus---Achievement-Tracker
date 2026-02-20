@@ -86,7 +86,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     s_Def.Signature   = 0x41434854; // ACHT
     s_Def.APIVersion  = NEXUS_API_VERSION;
     s_Def.Name        = "Achievement Tracker";
-    s_Def.Version     = { 1, 0, 0, 1 };
+    s_Def.Version     = { 1, 0, 0, 2 };
     s_Def.Author      = "YoruDev-Ryland";
     s_Def.Description = "Pin GW2 achievements to an overlay and track collection progress at a glance. "
                         "Search by name or ID, browse required items with icon previews, "
