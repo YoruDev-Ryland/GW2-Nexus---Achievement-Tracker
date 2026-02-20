@@ -21,7 +21,8 @@ A [Nexus](https://raidcore.gg/Nexus) addon for Guild Wars 2 that lets you pin ac
 
 1. Download `AchievementTracker.dll` from the [latest release](https://github.com/YoruDev-Ryland/GW2-Nexus---Achievement-Tracker/releases/latest).
 2. Place it in your Nexus addons folder (typically `Guild Wars 2/addons/`).
-3. Launch the game — Nexus will load the addon automatically.
+3. Launch the game
+4. Load the addon from your Nexus library
 
 ---
 
