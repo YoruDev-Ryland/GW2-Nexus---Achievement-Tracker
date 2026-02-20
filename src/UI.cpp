@@ -5,6 +5,7 @@
 #include <imgui.h>
 #include <algorithm>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <shellapi.h>
 #include <windows.h>
@@ -39,6 +40,9 @@ namespace UI {
     static char  s_SearchBuf[256] = "";
     static std::vector<Achievement> s_SearchResults;
     static bool  s_SearchDirty = false;
+
+    // Per-achievement: tracks which achievement IDs have their text collapsed
+    static std::unordered_set<int> s_TextCollapsed;
 
     // Delete confirmation (mirrors Armoury pattern)
     static bool s_ShowDeleteConfirm   = false;
@@ -168,9 +172,21 @@ namespace UI {
 
         if (!open || !ach) return;
 
-        ImGui::TextWrapped("%s", ach->description.c_str());
-        if (!ach->requirement.empty())
-            ImGui::TextWrapped("%s", ach->requirement.c_str());
+        // ── Collapsible description / requirement text ────────────────────────
+        bool textCollapsed = s_TextCollapsed.count(id) > 0;
+        // Small arrow-only node so the label acts as a toggle
+        ImGuiTreeNodeFlags textFlags = ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (!textCollapsed) textFlags |= ImGuiTreeNodeFlags_DefaultOpen;
+        bool textOpen = ImGui::TreeNodeEx(("Details##txt" + std::to_string(id)).c_str(), textFlags);
+        // Sync collapse state
+        if (textOpen  &&  textCollapsed) s_TextCollapsed.erase(id);
+        if (!textOpen && !textCollapsed) s_TextCollapsed.insert(id);
+        if (textOpen) {
+            ImGui::TextWrapped("%s", ach->description.c_str());
+            if (!ach->requirement.empty())
+                ImGui::TextWrapped("%s", ach->requirement.c_str());
+            ImGui::TreePop();
+        }
 
         if (accAch && accAch->max > 0) {
             std::string prog = std::to_string(accAch->current) + "/" + std::to_string(accAch->max);
