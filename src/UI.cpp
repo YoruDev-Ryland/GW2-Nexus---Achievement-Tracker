@@ -50,7 +50,11 @@ namespace UI {
     static std::string s_PendingDeleteName;
     static ImVec2      s_DeleteConfirmPos  = {};
 
-    // Deferred tooltip (drawn after ImGui::End so it appears above the main window)
+    // Progress auto-refresh state
+    static double s_LastProgressRefresh = 0.0;
+    static bool   s_WasInGame           = false;
+
+    // Deferred tooltip (drawn via foreground draw list — guaranteed above all windows)
     static int         s_TooltipItemId = 0;
     static const Item* s_TooltipItem   = nullptr;
     static void*       s_TooltipTex    = nullptr;
@@ -62,12 +66,21 @@ namespace UI {
                != g_Settings.TrackedAchievements.end();
     }
 
+    static void RefreshProgress()
+    {
+        if (!g_Settings.ApiKey.empty() && !g_Settings.TrackedAchievements.empty()) {
+            GW2Api::FetchAccountAchievementsAsync(g_Settings.ApiKey);
+            s_LastProgressRefresh = ImGui::GetTime();
+        }
+    }
+
     static void TrackAchievement(int id)
     {
         if (IsTracked(id)) return;
         g_Settings.TrackedAchievements.push_back(id);
         g_Settings.Save();
         GW2Api::FetchAndTrack(id);
+        RefreshProgress(); // fetch progress for the newly added achievement
     }
 
     static void UntrackAchievement(int id)
@@ -100,46 +113,67 @@ namespace UI {
         }
     }
 
-    // Draw a tooltip window anchored to the top-left of the cursor,
-    // with an enlarged icon preview and text description.
+    // Draw the item tooltip directly onto the foreground draw list so it is
+    // always rendered above every ImGui window regardless of focus order.
     static void DrawItemTooltip(const Item* item, int itemId, void* tex)
     {
-        ImVec2 mousePos = ImGui::GetMousePos();
-        constexpr float TTW = 270.f;
+        constexpr float PAD = 8.f;
         constexpr float IMG = 64.f;
-        // Position: to the left and above the cursor
-        ImGui::SetNextWindowPos(ImVec2(mousePos.x - TTW - 12.f, mousePos.y - 90.f),
-                                ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(TTW, 0.f));
-        ImGui::SetNextWindowBgAlpha(0.92f);
-        ImGui::Begin(("##tt_" + std::to_string(itemId)).c_str(), nullptr,
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize |
-            ImGuiWindowFlags_NoFocusOnAppearing);
+        constexpr float TTW = 260.f;
+
+        ImFont*     font   = ImGui::GetFont();
+        float       fsz    = ImGui::GetFontSize();
+        ImDrawList* dl     = ImGui::GetForegroundDrawList();
+        ImVec2      mouse  = ImGui::GetMousePos();
+        ImVec2      dispSz = ImGui::GetIO().DisplaySize;
+
+        const std::string nameStr   = item ? item->name : ("Item #" + std::to_string(itemId));
+        const std::string rarityStr = (item && !item->rarity.empty()) ? item->rarity : "";
+        const std::string descStr   = (item && !item->description.empty()) ? item->description : "";
+
+        // Calculate layout sizes up-front so we can draw the background rect first
+        float textColW  = TTW - (tex ? (IMG + PAD) : 0.f) - PAD * 2.f;
+        ImVec2 nameSz   = font->CalcTextSizeA(fsz,         textColW, 0.f, nameStr.c_str());
+        ImVec2 raritySz = rarityStr.empty() ? ImVec2{} :
+                          font->CalcTextSizeA(fsz * 0.9f,  textColW, 0.f, rarityStr.c_str());
+        ImVec2 descSz   = descStr.empty() ? ImVec2{} :
+                          font->CalcTextSizeA(fsz, FLT_MAX, TTW - PAD * 2.f, descStr.c_str());
+
+        float topRowH  = std::max(tex ? IMG : 0.f,
+                                  nameSz.y + (rarityStr.empty() ? 0.f : PAD * 0.5f + raritySz.y));
+        float totalH   = PAD + topRowH + PAD;
+        if (!descStr.empty())
+            totalH += 1.f + PAD + descSz.y + PAD;
+
+        // Anchor left of cursor, vertically centred on it; clamp to display
+        ImVec2 pos = ImVec2(mouse.x - TTW - 12.f, mouse.y - totalH * 0.5f);
+        pos.x = std::max(0.f, std::min(pos.x, dispSz.x - TTW));
+        pos.y = std::max(0.f, std::min(pos.y, dispSz.y - totalH));
+        ImVec2 posEnd = ImVec2(pos.x + TTW, pos.y + totalH);
+
+        dl->AddRectFilled(pos, posEnd, IM_COL32(28, 28, 28, 238), 4.f);
+        dl->AddRect      (pos, posEnd, IM_COL32(90, 90, 90, 200),  4.f);
+
+        float cx = pos.x + PAD;
+        float cy = pos.y + PAD;
 
         if (tex) {
-            ImGui::Image((ImTextureID)tex, ImVec2(IMG, IMG));
-            ImGui::SameLine();
+            dl->AddImage((ImTextureID)tex, ImVec2(cx, cy), ImVec2(cx + IMG, cy + IMG));
+            cx += IMG + PAD;
         }
-        ImGui::BeginGroup();
-        if (item) {
-            ImGui::TextUnformatted(item->name.c_str());
-            if (!item->rarity.empty())
-                ImGui::TextDisabled("%s", item->rarity.c_str());
-        } else {
-            ImGui::Text("Item #%d", itemId);
-        }
-        ImGui::EndGroup();
 
-        if (item && !item->description.empty()) {
-            ImGui::Separator();
-            ImGui::SetNextItemWidth(TTW - 16.f);
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + TTW - 16.f);
-            ImGui::TextWrapped("%s", item->description.c_str());
-            ImGui::PopTextWrapPos();
+        dl->AddText(font, fsz, ImVec2(cx, cy), IM_COL32(255, 255, 255, 255), nameStr.c_str());
+        cy += nameSz.y + PAD * 0.5f;
+
+        if (!rarityStr.empty())
+            dl->AddText(font, fsz * 0.9f, ImVec2(cx, cy), IM_COL32(160, 160, 160, 220), rarityStr.c_str());
+
+        if (!descStr.empty()) {
+            float sepY = pos.y + PAD + topRowH + PAD * 0.5f;
+            dl->AddLine(ImVec2(pos.x + 4.f, sepY), ImVec2(posEnd.x - 4.f, sepY), IM_COL32(80, 80, 80, 180));
+            dl->AddText(font, fsz, ImVec2(pos.x + PAD, sepY + PAD * 0.5f),
+                        IM_COL32(200, 200, 200, 255), descStr.c_str(), nullptr, TTW - PAD * 2.f);
         }
-        ImGui::End();
     }
 
     // ── Render one tracked achievement entry ──────────────────────────────────
@@ -292,7 +326,20 @@ namespace UI {
     // ── Main window ───────────────────────────────────────────────────────────
     void Render()
     {
-        if (!g_Settings.ShowWindow || !IsInGame()) return;
+        // Auto-refresh account progress: on first in-game entry and every 30 s
+        bool inGame = IsInGame();
+        if (!g_Settings.ApiKey.empty() && !g_Settings.TrackedAchievements.empty()) {
+            double now = ImGui::GetTime();
+            bool justEntered = inGame && !s_WasInGame;
+            bool timerFired  = inGame && (now - s_LastProgressRefresh) > 30.0;
+            if (justEntered || timerFired) {
+                GW2Api::FetchAccountAchievementsAsync(g_Settings.ApiKey);
+                s_LastProgressRefresh = now;
+            }
+        }
+        s_WasInGame = inGame;
+
+        if (!g_Settings.ShowWindow || !inGame) return;
 
         DrawDeleteConfirm();
 
@@ -365,7 +412,7 @@ namespace UI {
 
         ImGui::End();
 
-        // Draw deferred item tooltip on top of all other windows
+        // Draw tooltip via foreground draw list — rendered after all windows
         if (s_TooltipItemId != 0) {
             DrawItemTooltip(s_TooltipItem, s_TooltipItemId, s_TooltipTex);
             s_TooltipItemId = 0;
