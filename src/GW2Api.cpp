@@ -1,19 +1,97 @@
 #include "GW2Api.h"
 #include "Shared.h"
 #include <winhttp.h>
-#include <iostream>
 #include <sstream>
+#include <fstream>
 #include <thread>
 #include <mutex>
+#include <atomic>
+#include <cctype>
+#include <algorithm>
 
 using json = nlohmann::json;
 
 namespace GW2Api {
 
-    std::map<int, Achievement> s_Achievements;
-    std::map<int, Item> s_Items;
-    std::map<int, AccountAchievement> s_AccountAchievements;
-    std::mutex s_Mutex;
+    std::map<int, Achievement>        s_Achievements;
+    std::map<int, Item>                s_Items;
+    std::map<int, AccountAchievement>  s_AccountAchievements;
+    std::mutex                         s_Mutex;
+    std::atomic<bool>                  s_LoadingAll{false};
+
+    static std::string CachePath()
+    {
+        return std::string(APIDefs->Paths_GetAddonDirectory("AchievementTracker")) + "achievements_cache.json";
+    }
+
+    bool HasAchievementCache()
+    {
+        std::ifstream f(CachePath());
+        return f.good();
+    }
+
+    void SaveAchievementCache()
+    {
+        json arr = json::array();
+        {
+            std::lock_guard<std::mutex> lock(s_Mutex);
+            for (const auto& kv : s_Achievements) {
+                const auto& a = kv.second;
+                json entry;
+                entry["id"]          = a.id;
+                entry["name"]        = a.name;
+                entry["description"] = a.description;
+                entry["requirement"] = a.requirement;
+                entry["locked_text"] = a.locked_text;
+                entry["type"]        = a.type;
+                entry["icon"]        = a.icon;
+                entry["flags"]       = a.flags;
+                json bits = json::array();
+                for (const auto& b : a.bits) {
+                    json bj;
+                    bj["type"] = b.type;
+                    bj["id"]   = b.id;
+                    bj["text"] = b.text;
+                    bits.push_back(bj);
+                }
+                entry["bits"] = bits;
+                arr.push_back(entry);
+            }
+        }
+        std::ofstream(CachePath()) << arr.dump();
+    }
+
+    void LoadAchievementCache()
+    {
+        std::ifstream f(CachePath());
+        if (!f.is_open()) return;
+        try {
+            json j = json::parse(f);
+            std::lock_guard<std::mutex> lock(s_Mutex);
+            for (const auto& item : j) {
+                Achievement ach;
+                ach.id          = item.value("id", 0);
+                ach.name        = item.value("name", "");
+                ach.description = item.value("description", "");
+                ach.requirement = item.value("requirement", "");
+                ach.locked_text = item.value("locked_text", "");
+                ach.type        = item.value("type", "");
+                ach.icon        = item.value("icon", "");
+                if (item.contains("flags"))
+                    for (const auto& flag : item["flags"])
+                        ach.flags.push_back(flag.get<std::string>());
+                if (item.contains("bits"))
+                    for (const auto& bit : item["bits"]) {
+                        AchievementBit b;
+                        b.type = bit.value("type", "");
+                        b.id   = bit.value("id", 0);
+                        b.text = bit.value("text", "");
+                        ach.bits.push_back(b);
+                    }
+                s_Achievements[ach.id] = ach;
+            }
+        } catch (...) {}
+    }
 
     std::string HttpGet(const std::wstring& path, const std::string& apiKey)
     {
@@ -186,6 +264,73 @@ namespace GW2Api {
             return &it->second;
         }
         return nullptr;
+    }
+
+    bool IsLoadingAllAchievements() { return s_LoadingAll.load(); }
+
+    int CachedAchievementCount() {
+        std::lock_guard<std::mutex> lock(s_Mutex);
+        return static_cast<int>(s_Achievements.size());
+    }
+
+    void FetchAllAchievementsAsync() {
+        if (s_LoadingAll.exchange(true)) return; // already running
+        std::thread([]() {
+            // 1. Fetch the full list of IDs
+            std::string resp = HttpGet(L"/v2/achievements");
+            if (resp.empty()) { s_LoadingAll = false; return; }
+            std::vector<int> allIds;
+            try {
+                auto j = nlohmann::json::parse(resp);
+                for (auto& v : j) allIds.push_back(v.get<int>());
+            } catch (...) { s_LoadingAll = false; return; }
+
+            // 2. Fetch details in batches of 200
+            const int BATCH = 200;
+            for (size_t i = 0; i < allIds.size(); i += BATCH) {
+                std::vector<int> batch(allIds.begin() + i,
+                    allIds.begin() + std::min(i + BATCH, allIds.size()));
+                FetchAchievements(batch);
+            }
+
+            // 3. Persist to disk so next launch loads instantly
+            SaveAchievementCache();
+            s_LoadingAll = false;
+        }).detach();
+    }
+
+    std::vector<Achievement> SearchAchievements(const std::string& query) {
+        std::string lower = query;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+            [](unsigned char c){ return std::tolower(c); });
+
+        std::lock_guard<std::mutex> lock(s_Mutex);
+        std::vector<Achievement> results;
+        for (const auto& kv : s_Achievements) {
+            std::string name = kv.second.name;
+            std::transform(name.begin(), name.end(), name.begin(),
+                [](unsigned char c){ return std::tolower(c); });
+            if (name.find(lower) != std::string::npos) {
+                results.push_back(kv.second);
+                if (results.size() >= 50) break; // cap results
+            }
+        }
+        return results;
+    }
+
+    // Fetch a single achievement + its item bits, then refresh textures
+    void FetchAndTrack(int id) {
+        std::thread([id]() {
+            FetchAchievements({id});
+            const Achievement* ach = GetAchievement(id);
+            if (ach) {
+                std::vector<int> itemIds;
+                for (const auto& bit : ach->bits)
+                    if (bit.type == "Item") itemIds.push_back(bit.id);
+                if (!itemIds.empty()) FetchItems(itemIds);
+            }
+            LoadTextures();
+        }).detach();
     }
 
     void LoadTextures() {

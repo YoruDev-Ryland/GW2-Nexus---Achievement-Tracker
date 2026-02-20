@@ -27,6 +27,10 @@ static void AddonLoad(AddonAPI_t* aApi)
 
     g_Settings.Load();
 
+    // Load the local achievement name cache immediately so searching works
+    // as soon as the addon starts without any network call.
+    std::thread([]() { GW2Api::LoadAchievementCache(); }).detach();
+
     aApi->GUI_Register(RT_Render, UI::Render);
     aApi->GUI_Register(RT_OptionsRender, UI::RenderOptions);
     aApi->InputBinds_RegisterWithString("KB_ACHIEVEMENT_TRACKER_TOGGLE", OnKeybind, "(null)");
@@ -80,12 +84,12 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     s_Def.APIVersion  = NEXUS_API_VERSION;
     s_Def.Name        = "Achievement Tracker";
     s_Def.Version     = { 1, 0, 0, 0 };
-    s_Def.Author      = "GitHub Copilot";
+    s_Def.Author      = "YoruDev-Ryland";
     s_Def.Description = "Tracks achievements and their required items.";
     s_Def.Load        = AddonLoad;
     s_Def.Unload      = AddonUnload;
     s_Def.Flags       = AF_None;
     s_Def.Provider    = UP_GitHub;
-    s_Def.UpdateLink  = "https://github.com/yourusername/AchievementTracker";
+    s_Def.UpdateLink  = "https://github.com/YoruDev-Ryland/GW2-Nexus---Achievement-Tracker";
     return &s_Def;
 }
