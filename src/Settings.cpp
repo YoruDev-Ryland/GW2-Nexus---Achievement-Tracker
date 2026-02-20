@@ -20,6 +20,7 @@ void Settings::Load()
         json j = json::parse(f);
         ShowWindow = j.value("ShowWindow", ShowWindow);
         Opacity    = j.value("Opacity",    Opacity);
+        ApiKey     = j.value("ApiKey",     ApiKey);
         if (j.contains("TrackedAchievements") && j["TrackedAchievements"].is_array()) {
             TrackedAchievements = j["TrackedAchievements"].get<std::vector<int>>();
         }
@@ -29,8 +30,9 @@ void Settings::Load()
 void Settings::Save()
 {
     json j;
-    j["ShowWindow"] = ShowWindow;
-    j["Opacity"]    = Opacity;
+    j["ShowWindow"]          = ShowWindow;
+    j["Opacity"]             = Opacity;
+    j["ApiKey"]              = ApiKey;
     j["TrackedAchievements"] = TrackedAchievements;
     std::ofstream(SettingsPath()) << j.dump(4);
 }

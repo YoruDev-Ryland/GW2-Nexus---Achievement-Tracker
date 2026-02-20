@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cctype>
 #include <algorithm>
+#include <windows.h>  // CreateDirectoryA
 
 using json = nlohmann::json;
 
@@ -333,33 +334,109 @@ namespace GW2Api {
         }).detach();
     }
 
+    // Download binary content from render.guildwars2.com and write to a local file.
+    // Returns true on success.
+    static bool DownloadIconToDisk(const std::wstring& urlPath, const std::string& localPath)
+    {
+        HINTERNET hSession = WinHttpOpen(L"AchievementTracker/1.0",
+            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+        if (!hSession) return false;
+
+        HINTERNET hConnect = WinHttpConnect(hSession,
+            L"render.guildwars2.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+        HINTERNET hReq = WinHttpOpenRequest(hConnect, L"GET", urlPath.c_str(),
+            nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
+
+        bool ok = false;
+        if (hReq &&
+            WinHttpSendRequest(hReq, nullptr, 0, nullptr, 0, 0, 0) &&
+            WinHttpReceiveResponse(hReq, nullptr))
+        {
+            DWORD status = 0, sz = sizeof(status);
+            WinHttpQueryHeaders(hReq,
+                WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                nullptr, &status, &sz, nullptr);
+            if (status == 200)
+            {
+                std::ofstream ofs(localPath, std::ios::binary);
+                DWORD avail = 0;
+                while (WinHttpQueryDataAvailable(hReq, &avail) && avail > 0)
+                {
+                    std::string buf(avail, '\0');
+                    DWORD read = 0;
+                    WinHttpReadData(hReq, buf.data(), avail, &read);
+                    ofs.write(buf.data(), read);
+                }
+                ok = ofs.good();
+            }
+        }
+        if (hReq)     WinHttpCloseHandle(hReq);
+        if (hConnect) WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return ok;
+    }
+
+    // Returns the icons cache directory (creates it on first call).
+    static const std::string& IconsDir()
+    {
+        static std::string dir;
+        if (dir.empty()) {
+            dir = std::string(APIDefs->Paths_GetAddonDirectory("AchievementTracker")) + "icons\\";
+            CreateDirectoryA(dir.c_str(), nullptr);
+        }
+        return dir;
+    }
+
+    // If the texture isn't already registered:
+    //   1. Check the local disk cache (icons/<filename>).
+    //   2. If missing, download from render.guildwars2.com and save to disk.
+    //   3. Load from the local file with Textures_LoadFromFile.
+    static void EnsureIconCached(const std::string& url, const std::string& texName)
+    {
+        if (!APIDefs) return;
+        if (APIDefs->Textures_Get(texName.c_str())) return; // already in Nexus memory
+
+        size_t pos = url.find("render.guildwars2.com");
+        if (pos == std::string::npos) return;
+        std::string urlPath = url.substr(pos + 21); // e.g. /file/hash/id.png
+
+        size_t slash = urlPath.rfind('/');
+        std::string filename = (slash != std::string::npos) ? urlPath.substr(slash + 1) : urlPath;
+        std::string localPath = IconsDir() + filename;
+
+        // Check disk cache
+        if (std::ifstream(localPath, std::ios::binary).good()) {
+            APIDefs->Textures_LoadFromFile(texName.c_str(), localPath.c_str(), nullptr);
+            return;
+        }
+
+        // Download to disk then load
+        std::wstring wPath(urlPath.begin(), urlPath.end());
+        if (DownloadIconToDisk(wPath, localPath))
+            APIDefs->Textures_LoadFromFile(texName.c_str(), localPath.c_str(), nullptr);
+    }
+
+    void FetchAccountAchievementsAsync(const std::string& apiKey) {
+        if (apiKey.empty()) return;
+        std::thread([apiKey]() {
+            FetchAccountAchievements(apiKey);
+        }).detach();
+    }
+
     void LoadTextures() {
-        std::lock_guard<std::mutex> lock(s_Mutex);
-        for (const auto& pair : s_Achievements) {
-            if (!pair.second.icon.empty()) {
-                std::string texName = "ACHIEVEMENT_ICON_" + std::to_string(pair.first);
-                if (!APIDefs->Textures_Get(texName.c_str())) {
-                    std::string url = pair.second.icon;
-                    size_t pos = url.find("render.guildwars2.com");
-                    if (pos != std::string::npos) {
-                        std::string path = url.substr(pos + 21);
-                        APIDefs->Textures_LoadFromURL(texName.c_str(), "https://render.guildwars2.com", path.c_str(), nullptr);
-                    }
-                }
-            }
+        // Copy URLs out under lock, then release the mutex before the
+        // slow network/disk operations begin (avoids blocking the render thread).
+        std::vector<std::pair<std::string,std::string>> achIcons, itemIcons;
+        {
+            std::lock_guard<std::mutex> lock(s_Mutex);
+            for (const auto& pair : s_Achievements)
+                if (!pair.second.icon.empty())
+                    achIcons.push_back({"ACHIEVEMENT_ICON_" + std::to_string(pair.first), pair.second.icon});
+            for (const auto& pair : s_Items)
+                if (!pair.second.icon.empty())
+                    itemIcons.push_back({"ITEM_ICON_" + std::to_string(pair.first), pair.second.icon});
         }
-        for (const auto& pair : s_Items) {
-            if (!pair.second.icon.empty()) {
-                std::string texName = "ITEM_ICON_" + std::to_string(pair.first);
-                if (!APIDefs->Textures_Get(texName.c_str())) {
-                    std::string url = pair.second.icon;
-                    size_t pos = url.find("render.guildwars2.com");
-                    if (pos != std::string::npos) {
-                        std::string path = url.substr(pos + 21);
-                        APIDefs->Textures_LoadFromURL(texName.c_str(), "https://render.guildwars2.com", path.c_str(), nullptr);
-                    }
-                }
-            }
-        }
+        for (const auto& kv : achIcons)  EnsureIconCached(kv.second, kv.first);
+        for (const auto& kv : itemIcons) EnsureIconCached(kv.second, kv.first);
     }
 }

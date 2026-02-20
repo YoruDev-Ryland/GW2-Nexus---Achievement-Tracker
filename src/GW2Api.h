@@ -64,6 +64,9 @@ namespace GW2Api {
     void LoadTextures();
     void FetchAndTrack(int id);  // fetch achievement + its items, then LoadTextures
 
+    // Account progress — call after the player has entered the game
+    void FetchAccountAchievementsAsync(const std::string& apiKey);
+
     // Disk cache — call LoadAchievementCache() at startup, SaveAchievementCache()
     // is called automatically after FetchAllAchievementsAsync() finishes.
     void LoadAchievementCache();
