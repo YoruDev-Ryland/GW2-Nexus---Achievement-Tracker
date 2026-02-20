@@ -20,7 +20,8 @@ namespace UI {
             }
 
             if (accAch) {
-                ImGui::ProgressBar((float)accAch->current / (float)accAch->max, ImVec2(-1, 0), std::to_string(accAch->current) + "/" + std::to_string(accAch->max));
+                std::string progressText = std::to_string(accAch->current) + "/" + std::to_string(accAch->max);
+                ImGui::ProgressBar((float)accAch->current / (float)accAch->max, ImVec2(-1, 0), progressText.c_str());
             }
 
             if (!ach->bits.empty()) {
