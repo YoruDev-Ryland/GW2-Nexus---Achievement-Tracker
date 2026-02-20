@@ -44,10 +44,16 @@ namespace UI {
     // Per-achievement: tracks which achievement IDs have their text collapsed
     static std::unordered_set<int> s_TextCollapsed;
 
-    // Delete confirmation (mirrors Armoury pattern)
-    static bool s_ShowDeleteConfirm   = false;
-    static int  s_PendingDeleteId     = 0;
+    // Delete confirmation
+    static bool        s_ShowDeleteConfirm = false;
+    static int         s_PendingDeleteId   = 0;
     static std::string s_PendingDeleteName;
+    static ImVec2      s_DeleteConfirmPos  = {};
+
+    // Deferred tooltip (drawn after ImGui::End so it appears above the main window)
+    static int         s_TooltipItemId = 0;
+    static const Item* s_TooltipItem   = nullptr;
+    static void*       s_TooltipTex    = nullptr;
 
     static bool IsTracked(int id)
     {
@@ -161,13 +167,12 @@ namespace UI {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open Wiki page");
 
         ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.4f, 0.4f, 1.f));
-        if (ImGui::SmallButton(("x##rm" + std::to_string(id)).c_str())) {
+        if (ImGui::SmallButton(("X##rm" + std::to_string(id)).c_str())) {
             s_PendingDeleteId   = id;
             s_PendingDeleteName = ach ? ach->name : "Achievement #" + std::to_string(id);
             s_ShowDeleteConfirm = true;
+            s_DeleteConfirmPos  = ImGui::GetMousePos();
         }
-        ImGui::PopStyleColor();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stop tracking");
 
         if (!open || !ach) return;
@@ -219,9 +224,12 @@ namespace UI {
                         ImGui::Image((ImTextureID)tex, ImVec2(32,32),
                                      ImVec2(0,0), ImVec2(1,1), tint);
 
-                        // Tooltip: top-left, enlarged preview
-                        if (ImGui::IsItemHovered())
-                            DrawItemTooltip(item, bit.id, tex);
+                        // Defer tooltip so it renders above the main window
+                        if (ImGui::IsItemHovered()) {
+                            s_TooltipItemId = bit.id;
+                            s_TooltipItem   = item;
+                            s_TooltipTex    = tex;
+                        }
 
                         // Right-click context menu: Open Wiki
                         if (ImGui::BeginPopupContextItem("##ctx")) {
@@ -254,10 +262,10 @@ namespace UI {
     {
         if (!s_ShowDeleteConfirm) return;
 
-        ImGui::SetNextWindowSize(ImVec2(340, 0), ImGuiCond_Always);
-        ImVec2 dispSz = ImGui::GetIO().DisplaySize;
-        ImGui::SetNextWindowPos(ImVec2(dispSz.x * 0.5f, dispSz.y * 0.5f),
-                                ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(280, 0), ImGuiCond_Always);
+        // Anchor just below and centered on where the X was clicked
+        ImGui::SetNextWindowPos(ImVec2(s_DeleteConfirmPos.x, s_DeleteConfirmPos.y + 8.f),
+                                ImGuiCond_Always, ImVec2(0.5f, 0.0f));
         bool open = true;
         if (ImGui::Begin("Confirm##del_confirm", &open,
             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
@@ -356,6 +364,14 @@ namespace UI {
         }
 
         ImGui::End();
+
+        // Draw deferred item tooltip on top of all other windows
+        if (s_TooltipItemId != 0) {
+            DrawItemTooltip(s_TooltipItem, s_TooltipItemId, s_TooltipTex);
+            s_TooltipItemId = 0;
+            s_TooltipItem   = nullptr;
+            s_TooltipTex    = nullptr;
+        }
     }
 
     // ── Options panel ─────────────────────────────────────────────────────────
