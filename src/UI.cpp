@@ -12,7 +12,6 @@
 
 namespace UI {
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
     static void OpenURL(const std::string& url)
     {
         ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -20,7 +19,6 @@ namespace UI {
 
     static std::string WikiURL(const std::string& name)
     {
-        // URL-encode the name for the wiki
         std::string encoded;
         for (unsigned char c : name) {
             if (isalnum(c) || c == '-' || c == '.' || c == '_' || c == '(' || c == ')') {
@@ -36,25 +34,20 @@ namespace UI {
         return "https://wiki.guildwars2.com/wiki/" + encoded;
     }
 
-    // ── Persistent state ──────────────────────────────────────────────────────
     static char  s_SearchBuf[256] = "";
     static std::vector<Achievement> s_SearchResults;
     static bool  s_SearchDirty = false;
 
-    // Per-achievement: tracks which achievement IDs have their text collapsed
     static std::unordered_set<int> s_TextCollapsed;
 
-    // Delete confirmation
     static bool        s_ShowDeleteConfirm = false;
     static int         s_PendingDeleteId   = 0;
     static std::string s_PendingDeleteName;
     static ImVec2      s_DeleteConfirmPos  = {};
 
-    // Progress auto-refresh state
     static double s_LastProgressRefresh = 0.0;
     static bool   s_WasInGame           = false;
 
-    // Deferred tooltip (drawn via foreground draw list — guaranteed above all windows)
     static int         s_TooltipItemId = 0;
     static const Item* s_TooltipItem   = nullptr;
     static void*       s_TooltipTex    = nullptr;
@@ -80,7 +73,7 @@ namespace UI {
         g_Settings.TrackedAchievements.push_back(id);
         g_Settings.Save();
         GW2Api::FetchAndTrack(id);
-        RefreshProgress(); // fetch progress for the newly added achievement
+        RefreshProgress();
     }
 
     static void UntrackAchievement(int id)
@@ -113,8 +106,6 @@ namespace UI {
         }
     }
 
-    // Draw the item tooltip directly onto the foreground draw list so it is
-    // always rendered above every ImGui window regardless of focus order.
     static void DrawItemTooltip(const Item* item, int itemId, void* tex)
     {
         constexpr float PAD = 8.f;
@@ -131,7 +122,6 @@ namespace UI {
         const std::string rarityStr = (item && !item->rarity.empty()) ? item->rarity : "";
         const std::string descStr   = (item && !item->description.empty()) ? item->description : "";
 
-        // Calculate layout sizes up-front so we can draw the background rect first
         float textColW  = TTW - (tex ? (IMG + PAD) : 0.f) - PAD * 2.f;
         ImVec2 nameSz   = font->CalcTextSizeA(fsz,         textColW, 0.f, nameStr.c_str());
         ImVec2 raritySz = rarityStr.empty() ? ImVec2{} :
@@ -145,7 +135,6 @@ namespace UI {
         if (!descStr.empty())
             totalH += 1.f + PAD + descSz.y + PAD;
 
-        // Anchor left of cursor, vertically centred on it; clamp to display
         ImVec2 pos = ImVec2(mouse.x - TTW - 12.f, mouse.y - totalH * 0.5f);
         pos.x = std::max(0.f, std::min(pos.x, dispSz.x - TTW));
         pos.y = std::max(0.f, std::min(pos.y, dispSz.y - totalH));
@@ -176,7 +165,6 @@ namespace UI {
         }
     }
 
-    // ── Render one tracked achievement entry ──────────────────────────────────
     static void RenderAchievement(int id, bool& removed)
     {
         const Achievement*        ach    = GW2Api::GetAchievement(id);
@@ -189,7 +177,6 @@ namespace UI {
                         ImGuiTreeNodeFlags_DefaultOpen |
                         ImGuiTreeNodeFlags_AllowItemOverlap);
 
-        // Buttons flush right: [W]iki  [x]delete
         float btnW = ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f;
         float wikiW = ImGui::CalcTextSize("W").x + ImGui::GetStyle().FramePadding.x * 2.0f;
         float totalBtnW = wikiW + ImGui::GetStyle().ItemSpacing.x + btnW;
@@ -211,13 +198,12 @@ namespace UI {
 
         if (!open || !ach) return;
 
-        // ── Collapsible description / requirement text ────────────────────────
         bool textCollapsed = s_TextCollapsed.count(id) > 0;
-        // Small arrow-only node so the label acts as a toggle
+
         ImGuiTreeNodeFlags textFlags = ImGuiTreeNodeFlags_SpanAvailWidth;
         if (!textCollapsed) textFlags |= ImGuiTreeNodeFlags_DefaultOpen;
         bool textOpen = ImGui::TreeNodeEx(("Details##txt" + std::to_string(id)).c_str(), textFlags);
-        // Sync collapse state
+
         if (textOpen  &&  textCollapsed) s_TextCollapsed.erase(id);
         if (!textOpen && !textCollapsed) s_TextCollapsed.insert(id);
         if (textOpen) {
@@ -258,14 +244,12 @@ namespace UI {
                         ImGui::Image((ImTextureID)tex, ImVec2(32,32),
                                      ImVec2(0,0), ImVec2(1,1), tint);
 
-                        // Defer tooltip so it renders above the main window
                         if (ImGui::IsItemHovered()) {
                             s_TooltipItemId = bit.id;
                             s_TooltipItem   = item;
                             s_TooltipTex    = tex;
                         }
 
-                        // Right-click context menu: Open Wiki
                         if (ImGui::BeginPopupContextItem("##ctx")) {
                             std::string wikiLbl = item
                                 ? ("Open Wiki: " + item->name)
@@ -291,13 +275,12 @@ namespace UI {
         }
     }
 
-    // ── Delete confirmation popup ─────────────────────────────────────────────
     static void DrawDeleteConfirm()
     {
         if (!s_ShowDeleteConfirm) return;
 
         ImGui::SetNextWindowSize(ImVec2(280, 0), ImGuiCond_Always);
-        // Anchor just below and centered on where the X was clicked
+
         ImGui::SetNextWindowPos(ImVec2(s_DeleteConfirmPos.x, s_DeleteConfirmPos.y + 8.f),
                                 ImGuiCond_Always, ImVec2(0.5f, 0.0f));
         bool open = true;
@@ -323,10 +306,9 @@ namespace UI {
         if (!open) s_ShowDeleteConfirm = false;
     }
 
-    // ── Main window ───────────────────────────────────────────────────────────
     void Render()
     {
-        // Auto-refresh account progress: on first in-game entry and every 30 s
+
         bool inGame = IsInGame();
         if (!g_Settings.ApiKey.empty() && !g_Settings.TrackedAchievements.empty()) {
             double now = ImGui::GetTime();
@@ -351,7 +333,6 @@ namespace UI {
             return;
         }
 
-        // Search bar (full width)
         ImGui::SetNextItemWidth(-1);
         if (ImGui::InputTextWithHint("##search", "Search by name or ID...",
                                      s_SearchBuf, sizeof(s_SearchBuf)))
@@ -412,7 +393,6 @@ namespace UI {
 
         ImGui::End();
 
-        // Draw tooltip via foreground draw list — rendered after all windows
         if (s_TooltipItemId != 0) {
             DrawItemTooltip(s_TooltipItem, s_TooltipItemId, s_TooltipTex);
             s_TooltipItemId = 0;
@@ -421,7 +401,6 @@ namespace UI {
         }
     }
 
-    // ── Options panel ─────────────────────────────────────────────────────────
     void RenderOptions()
     {
         if (ImGui::Checkbox("Show Tracker", &g_Settings.ShowWindow))
@@ -492,4 +471,4 @@ namespace UI {
         }
     }
 
-} // namespace UI
+}

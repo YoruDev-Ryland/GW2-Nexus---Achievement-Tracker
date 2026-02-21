@@ -47,8 +47,6 @@ namespace GW2Api {
     void FetchItems(const std::vector<int>& ids);
     void FetchAccountAchievements(const std::string& apiKey);
 
-    // Fetches every achievement ID then downloads data in batches of 200.
-    // Runs fully in a detached background thread — safe to call from AddonLoad.
     void FetchAllAchievementsAsync();
     bool IsLoadingAllAchievements();
     int  CachedAchievementCount();
@@ -57,23 +55,16 @@ namespace GW2Api {
     const Item*        GetItem(int id);
     const AccountAchievement* GetAccountAchievement(int id);
 
-    // Case-insensitive substring search across cached achievements.
-    // Returns copies so callers don't need to hold the mutex.
     std::vector<Achievement> SearchAchievements(const std::string& query);
 
     void LoadTextures();
-    void FetchAndTrack(int id);  // fetch achievement + its items, then LoadTextures
+    void FetchAndTrack(int id);
 
-    // Account progress — call after the player has entered the game
     void FetchAccountAchievementsAsync(const std::string& apiKey);
 
-    // Signal all background threads to stop touching APIDefs and exit gracefully.
-    // Call this at the start of AddonUnload, before deregistering anything.
     void Shutdown();
 
-    // Disk cache — call LoadAchievementCache() at startup, SaveAchievementCache()
-    // is called automatically after FetchAllAchievementsAsync() finishes.
     void LoadAchievementCache();
     void SaveAchievementCache();
-    bool HasAchievementCache();  // true if a valid cache file exists on disk
+    bool HasAchievementCache();
 }

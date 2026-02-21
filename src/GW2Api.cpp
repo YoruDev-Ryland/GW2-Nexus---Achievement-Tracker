@@ -8,7 +8,7 @@
 #include <atomic>
 #include <cctype>
 #include <algorithm>
-#include <windows.h>  // CreateDirectoryA
+#include <windows.h>
 
 using json = nlohmann::json;
 
@@ -278,10 +278,10 @@ namespace GW2Api {
     }
 
     void FetchAllAchievementsAsync() {
-        if (s_LoadingAll.exchange(true)) return; // already running
+        if (s_LoadingAll.exchange(true)) return;
         std::thread([]() {
             if (s_Shutdown) { s_LoadingAll = false; return; }
-            // 1. Fetch the full list of IDs
+
             std::string resp = HttpGet(L"/v2/achievements");
             if (resp.empty() || s_Shutdown) { s_LoadingAll = false; return; }
             std::vector<int> allIds;
@@ -290,7 +290,6 @@ namespace GW2Api {
                 for (auto& v : j) allIds.push_back(v.get<int>());
             } catch (...) { s_LoadingAll = false; return; }
 
-            // 2. Fetch details in batches of 200
             const int BATCH = 200;
             for (size_t i = 0; i < allIds.size(); i += BATCH) {
                 if (s_Shutdown) break;
@@ -299,7 +298,6 @@ namespace GW2Api {
                 FetchAchievements(batch);
             }
 
-            // 3. Persist to disk so next launch loads instantly
             if (!s_Shutdown) SaveAchievementCache();
             s_LoadingAll = false;
         }).detach();
@@ -318,13 +316,12 @@ namespace GW2Api {
                 [](unsigned char c){ return std::tolower(c); });
             if (name.find(lower) != std::string::npos) {
                 results.push_back(kv.second);
-                if (results.size() >= 50) break; // cap results
+                if (results.size() >= 50) break;
             }
         }
         return results;
     }
 
-    // Fetch a single achievement + its item bits, then refresh textures
     void FetchAndTrack(int id) {
         std::thread([id]() {
             if (s_Shutdown) return;
@@ -341,8 +338,6 @@ namespace GW2Api {
         }).detach();
     }
 
-    // Download binary content from render.guildwars2.com and write to a local file.
-    // Returns true on success.
     static bool DownloadIconToDisk(const std::wstring& urlPath, const std::string& localPath)
     {
         HINTERNET hSession = WinHttpOpen(L"AchievementTracker/1.0",
@@ -383,7 +378,6 @@ namespace GW2Api {
         return ok;
     }
 
-    // Returns the icons cache directory (creates it on first call).
     static const std::string& IconsDir()
     {
         static std::string dir;
@@ -394,30 +388,24 @@ namespace GW2Api {
         return dir;
     }
 
-    // If the texture isn't already registered:
-    //   1. Check the local disk cache (icons/<filename>).
-    //   2. If missing, download from render.guildwars2.com and save to disk.
-    //   3. Load from the local file with Textures_LoadFromFile.
     static void EnsureIconCached(const std::string& url, const std::string& texName)
     {
         if (s_Shutdown || !APIDefs) return;
-        if (APIDefs->Textures_Get(texName.c_str())) return; // already in Nexus memory
+        if (APIDefs->Textures_Get(texName.c_str())) return;
 
         size_t pos = url.find("render.guildwars2.com");
         if (pos == std::string::npos) return;
-        std::string urlPath = url.substr(pos + 21); // e.g. /file/hash/id.png
+        std::string urlPath = url.substr(pos + 21);
 
         size_t slash = urlPath.rfind('/');
         std::string filename = (slash != std::string::npos) ? urlPath.substr(slash + 1) : urlPath;
         std::string localPath = IconsDir() + filename;
 
-        // Check disk cache
         if (std::ifstream(localPath, std::ios::binary).good()) {
             APIDefs->Textures_LoadFromFile(texName.c_str(), localPath.c_str(), nullptr);
             return;
         }
 
-        // Download to disk then load
         std::wstring wPath(urlPath.begin(), urlPath.end());
         if (DownloadIconToDisk(wPath, localPath))
             APIDefs->Textures_LoadFromFile(texName.c_str(), localPath.c_str(), nullptr);
@@ -431,8 +419,6 @@ namespace GW2Api {
     }
 
     void LoadTextures() {
-        // Copy URLs out under lock, then release the mutex before the
-        // slow network/disk operations begin (avoids blocking the render thread).
         std::vector<std::pair<std::string,std::string>> achIcons, itemIcons;
         {
             std::lock_guard<std::mutex> lock(s_Mutex);

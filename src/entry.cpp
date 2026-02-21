@@ -30,8 +30,6 @@ static void AddonLoad(AddonAPI_t* aApi)
 
     g_Settings.Load();
 
-    // Load the local achievement name cache immediately so searching works
-    // as soon as the addon starts without any network call.
     g_CacheThread = std::thread([]() { GW2Api::LoadAchievementCache(); });
 
     aApi->GUI_Register(RT_Render, UI::Render);
@@ -61,7 +59,6 @@ static void AddonLoad(AddonAPI_t* aApi)
             }
             GW2Api::LoadTextures();
         }
-        // Refresh account progress immediately on load if an API key is configured
         if (!g_Settings.ApiKey.empty() && !g_Settings.TrackedAchievements.empty())
             GW2Api::FetchAccountAchievementsAsync(g_Settings.ApiKey);
     });
@@ -70,10 +67,7 @@ static void AddonLoad(AddonAPI_t* aApi)
 static void AddonUnload()
 {
     if (!APIDefs) return;
-    // Signal background threads to abort their work, then wait for them to exit
-    // before touching APIDefs.  Must happen before any Deregister call so that
-    // threads that test APIDefs != nullptr still see a valid pointer during
-    // their final winding-down iteration.
+    
     GW2Api::Shutdown();
     if (g_CacheThread.joinable()) g_CacheThread.join();
     if (g_InitThread.joinable())  g_InitThread.join();
