@@ -91,21 +91,21 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID)
     return TRUE;
 }
 
-static AddonDefinition_t s_Def{};
+static AddonDefinition_t s_AddonDef{};
 extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
 {
-    s_Def.Signature   = 0x41434854; // ACHT
-    s_Def.APIVersion  = NEXUS_API_VERSION;
-    s_Def.Name        = "Achievement Tracker";
-    s_Def.Version     = { 1, 0, 0, 3 };
-    s_Def.Author      = "YoruDev-Ryland";
-    s_Def.Description = "Pin GW2 achievements to an overlay and track collection progress at a glance. "
-                        "Search by name or ID, browse required items with icon previews, "
-                        "and optionally link your API key to see live completion status.";
-    s_Def.Load        = AddonLoad;
-    s_Def.Unload      = AddonUnload;
-    s_Def.Flags       = AF_None;
-    s_Def.Provider    = UP_GitHub;
-    s_Def.UpdateLink  = "https://github.com/YoruDev-Ryland/GW2-Nexus---Achievement-Tracker";
-    return &s_Def;
+    s_AddonDef.Signature   = 0x41434854; // ACHT
+    s_AddonDef.APIVersion  = NEXUS_API_VERSION;
+    s_AddonDef.Name        = "Achievement Tracker";
+    s_AddonDef.Version     = { 1, 0, 0, 3 };
+    s_AddonDef.Author      = "YoruDev-Ryland";
+    s_AddonDef.Description = "Pin GW2 achievements to an overlay and track collection progress at a glance. "
+                             "Search by name or ID, browse required items with icon previews, "
+                             "and optionally link your API key to see live completion status.";
+    s_AddonDef.Load        = AddonLoad;
+    s_AddonDef.Unload      = AddonUnload;
+    s_AddonDef.Flags       = AF_None;
+    s_AddonDef.Provider    = UP_GitHub;
+    s_AddonDef.UpdateLink  = "https://github.com/YoruDev-Ryland/GW2-Nexus---Achievement-Tracker";
+    return &s_AddonDef;
 }
