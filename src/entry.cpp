@@ -6,6 +6,9 @@
 #include <cstring>
 #include <thread>
 
+static std::thread g_CacheThread;
+static std::thread g_InitThread;
+
 static void OnKeybind(const char* id, bool release)
 {
     if (!release && strcmp(id, "KB_ACHIEVEMENT_TRACKER_TOGGLE") == 0) {
@@ -29,7 +32,7 @@ static void AddonLoad(AddonAPI_t* aApi)
 
     // Load the local achievement name cache immediately so searching works
     // as soon as the addon starts without any network call.
-    std::thread([]() { GW2Api::LoadAchievementCache(); }).detach();
+    g_CacheThread = std::thread([]() { GW2Api::LoadAchievementCache(); });
 
     aApi->GUI_Register(RT_Render, UI::Render);
     aApi->GUI_Register(RT_OptionsRender, UI::RenderOptions);
@@ -39,7 +42,7 @@ static void AddonLoad(AddonAPI_t* aApi)
     aApi->QuickAccess_Add("QA_ACHIEVEMENT_TRACKER", "ICON_ACHIEVEMENT_TRACKER", "ICON_ACHIEVEMENT_TRACKER",
                           "KB_ACHIEVEMENT_TRACKER_TOGGLE", "Achievement Tracker");
 
-    std::thread([]() {
+    g_InitThread = std::thread([]() {
         if (!g_Settings.TrackedAchievements.empty()) {
             GW2Api::FetchAchievements(g_Settings.TrackedAchievements);
             std::vector<int> itemIds;
@@ -61,12 +64,20 @@ static void AddonLoad(AddonAPI_t* aApi)
         // Refresh account progress immediately on load if an API key is configured
         if (!g_Settings.ApiKey.empty() && !g_Settings.TrackedAchievements.empty())
             GW2Api::FetchAccountAchievementsAsync(g_Settings.ApiKey);
-    }).detach();
+    });
 }
 
 static void AddonUnload()
 {
     if (!APIDefs) return;
+    // Signal background threads to abort their work, then wait for them to exit
+    // before touching APIDefs.  Must happen before any Deregister call so that
+    // threads that test APIDefs != nullptr still see a valid pointer during
+    // their final winding-down iteration.
+    GW2Api::Shutdown();
+    if (g_CacheThread.joinable()) g_CacheThread.join();
+    if (g_InitThread.joinable())  g_InitThread.join();
+
     APIDefs->GUI_Deregister(UI::Render);
     APIDefs->GUI_Deregister(UI::RenderOptions);
     APIDefs->InputBinds_Deregister("KB_ACHIEVEMENT_TRACKER_TOGGLE");

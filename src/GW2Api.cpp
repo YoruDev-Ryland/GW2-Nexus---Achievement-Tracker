@@ -19,6 +19,9 @@ namespace GW2Api {
     std::map<int, AccountAchievement>  s_AccountAchievements;
     std::mutex                         s_Mutex;
     std::atomic<bool>                  s_LoadingAll{false};
+    std::atomic<bool>                  s_Shutdown{false};
+
+    void Shutdown() { s_Shutdown = true; }
 
     static std::string CachePath()
     {
@@ -277,9 +280,10 @@ namespace GW2Api {
     void FetchAllAchievementsAsync() {
         if (s_LoadingAll.exchange(true)) return; // already running
         std::thread([]() {
+            if (s_Shutdown) { s_LoadingAll = false; return; }
             // 1. Fetch the full list of IDs
             std::string resp = HttpGet(L"/v2/achievements");
-            if (resp.empty()) { s_LoadingAll = false; return; }
+            if (resp.empty() || s_Shutdown) { s_LoadingAll = false; return; }
             std::vector<int> allIds;
             try {
                 auto j = nlohmann::json::parse(resp);
@@ -289,13 +293,14 @@ namespace GW2Api {
             // 2. Fetch details in batches of 200
             const int BATCH = 200;
             for (size_t i = 0; i < allIds.size(); i += BATCH) {
+                if (s_Shutdown) break;
                 std::vector<int> batch(allIds.begin() + i,
                     allIds.begin() + std::min(i + BATCH, allIds.size()));
                 FetchAchievements(batch);
             }
 
             // 3. Persist to disk so next launch loads instantly
-            SaveAchievementCache();
+            if (!s_Shutdown) SaveAchievementCache();
             s_LoadingAll = false;
         }).detach();
     }
@@ -322,7 +327,9 @@ namespace GW2Api {
     // Fetch a single achievement + its item bits, then refresh textures
     void FetchAndTrack(int id) {
         std::thread([id]() {
+            if (s_Shutdown) return;
             FetchAchievements({id});
+            if (s_Shutdown) return;
             const Achievement* ach = GetAchievement(id);
             if (ach) {
                 std::vector<int> itemIds;
@@ -330,7 +337,7 @@ namespace GW2Api {
                     if (bit.type == "Item") itemIds.push_back(bit.id);
                 if (!itemIds.empty()) FetchItems(itemIds);
             }
-            LoadTextures();
+            if (!s_Shutdown) LoadTextures();
         }).detach();
     }
 
@@ -393,7 +400,7 @@ namespace GW2Api {
     //   3. Load from the local file with Textures_LoadFromFile.
     static void EnsureIconCached(const std::string& url, const std::string& texName)
     {
-        if (!APIDefs) return;
+        if (s_Shutdown || !APIDefs) return;
         if (APIDefs->Textures_Get(texName.c_str())) return; // already in Nexus memory
 
         size_t pos = url.find("render.guildwars2.com");
@@ -419,7 +426,7 @@ namespace GW2Api {
     void FetchAccountAchievementsAsync(const std::string& apiKey) {
         if (apiKey.empty()) return;
         std::thread([apiKey]() {
-            FetchAccountAchievements(apiKey);
+            if (!s_Shutdown) FetchAccountAchievements(apiKey);
         }).detach();
     }
 

@@ -67,6 +67,10 @@ namespace GW2Api {
     // Account progress — call after the player has entered the game
     void FetchAccountAchievementsAsync(const std::string& apiKey);
 
+    // Signal all background threads to stop touching APIDefs and exit gracefully.
+    // Call this at the start of AddonUnload, before deregistering anything.
+    void Shutdown();
+
     // Disk cache — call LoadAchievementCache() at startup, SaveAchievementCache()
     // is called automatically after FetchAllAchievementsAsync() finishes.
     void LoadAchievementCache();
