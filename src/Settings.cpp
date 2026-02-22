@@ -24,6 +24,14 @@ void Settings::Load()
         if (j.contains("TrackedAchievements") && j["TrackedAchievements"].is_array()) {
             TrackedAchievements = j["TrackedAchievements"].get<std::vector<int>>();
         }
+        CollapsedHeaders.clear();
+        if (j.contains("CollapsedHeaders") && j["CollapsedHeaders"].is_array()) {
+            for (const auto& v : j["CollapsedHeaders"]) CollapsedHeaders.insert(v.get<int>());
+        }
+        CollapsedDetails.clear();
+        if (j.contains("CollapsedDetails") && j["CollapsedDetails"].is_array()) {
+            for (const auto& v : j["CollapsedDetails"]) CollapsedDetails.insert(v.get<int>());
+        }
     } catch (...) {}
 }
 
@@ -34,5 +42,9 @@ void Settings::Save()
     j["Opacity"]             = Opacity;
     j["ApiKey"]              = ApiKey;
     j["TrackedAchievements"] = TrackedAchievements;
+    j["CollapsedHeaders"]    = json::array();
+    for (int id : CollapsedHeaders) j["CollapsedHeaders"].push_back(id);
+    j["CollapsedDetails"]    = json::array();
+    for (int id : CollapsedDetails) j["CollapsedDetails"].push_back(id);
     std::ofstream(SettingsPath()) << j.dump(4);
 }

@@ -38,8 +38,6 @@ namespace UI {
     static std::vector<Achievement> s_SearchResults;
     static bool  s_SearchDirty = false;
 
-    static std::unordered_set<int> s_TextCollapsed;
-
     static bool        s_ShowDeleteConfirm = false;
     static int         s_PendingDeleteId   = 0;
     static std::string s_PendingDeleteName;
@@ -173,9 +171,20 @@ namespace UI {
         std::string headerLabel = ach ? ach->name : "Achievement #" + std::to_string(id);
         headerLabel += "##ach" + std::to_string(id);
 
+        // Restore persisted collapse state on first render in this session
+        ImGui::SetNextItemOpen(!g_Settings.CollapsedHeaders.count(id), ImGuiCond_Once);
         bool open = ImGui::CollapsingHeader(headerLabel.c_str(),
-                        ImGuiTreeNodeFlags_DefaultOpen |
                         ImGuiTreeNodeFlags_AllowItemOverlap);
+
+        // Persist any user-triggered collapse/expand
+        bool headerCurrentlyCollapsed = g_Settings.CollapsedHeaders.count(id) > 0;
+        if (!open && !headerCurrentlyCollapsed) {
+            g_Settings.CollapsedHeaders.insert(id);
+            g_Settings.Save();
+        } else if (open && headerCurrentlyCollapsed) {
+            g_Settings.CollapsedHeaders.erase(id);
+            g_Settings.Save();
+        }
 
         float btnW = ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f;
         float wikiW = ImGui::CalcTextSize("W").x + ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -198,14 +207,14 @@ namespace UI {
 
         if (!open || !ach) return;
 
-        bool textCollapsed = s_TextCollapsed.count(id) > 0;
+        bool textCollapsed = g_Settings.CollapsedDetails.count(id) > 0;
 
         ImGuiTreeNodeFlags textFlags = ImGuiTreeNodeFlags_SpanAvailWidth;
         if (!textCollapsed) textFlags |= ImGuiTreeNodeFlags_DefaultOpen;
         bool textOpen = ImGui::TreeNodeEx(("Details##txt" + std::to_string(id)).c_str(), textFlags);
 
-        if (textOpen  &&  textCollapsed) s_TextCollapsed.erase(id);
-        if (!textOpen && !textCollapsed) s_TextCollapsed.insert(id);
+        if (textOpen  &&  textCollapsed) { g_Settings.CollapsedDetails.erase(id);  g_Settings.Save(); }
+        if (!textOpen && !textCollapsed) { g_Settings.CollapsedDetails.insert(id); g_Settings.Save(); }
         if (textOpen) {
             ImGui::TextWrapped("%s", ach->description.c_str());
             if (!ach->requirement.empty())
