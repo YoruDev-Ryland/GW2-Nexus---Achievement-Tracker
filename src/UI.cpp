@@ -221,57 +221,84 @@ namespace UI {
 
         if (ach->bits.empty()) return;
 
-        ImGui::Spacing();
-        std::string tableId = "bits##" + std::to_string(id);
-        if (ImGui::BeginTable(tableId.c_str(), 8)) {
-            for (size_t i = 0; i < ach->bits.size(); ++i) {
-                ImGui::TableNextColumn();
-                const auto& bit = ach->bits[i];
+        // Decide whether to use a list layout (all bits are text-only) or the icon grid
+        bool allText = true;
+        for (const auto& bit : ach->bits) {
+            if (bit.type != "Text") { allText = false; break; }
+        }
 
+        ImGui::Spacing();
+
+        if (allText) {
+            // List layout for text-only achievements
+            for (size_t i = 0; i < ach->bits.size(); ++i) {
+                const auto& bit = ach->bits[i];
                 bool isDone = false;
                 if (accAch)
                     isDone = std::find(accAch->bits.begin(), accAch->bits.end(),
                                        (int)i) != accAch->bits.end();
-
-                if (bit.type == "Item") {
-                    const Item* item = GW2Api::GetItem(bit.id);
-                    std::string texName = "ITEM_ICON_" + std::to_string(bit.id);
-                    void* tex = GetTexResource(texName);
-
-                    if (tex) {
-                        ImGui::PushID((int)i + id * 10000);
-                        ImVec4 tint = isDone ? ImVec4(1,1,1,1) : ImVec4(0.3f,0.3f,0.3f,1.f);
-                        ImGui::Image((ImTextureID)tex, ImVec2(32,32),
-                                     ImVec2(0,0), ImVec2(1,1), tint);
-
-                        if (ImGui::IsItemHovered()) {
-                            s_TooltipItemId = bit.id;
-                            s_TooltipItem   = item;
-                            s_TooltipTex    = tex;
-                        }
-
-                        if (ImGui::BeginPopupContextItem("##ctx")) {
-                            std::string wikiLbl = item
-                                ? ("Open Wiki: " + item->name)
-                                : ("Open Wiki: Item #" + std::to_string(bit.id));
-                            if (ImGui::MenuItem(wikiLbl.c_str())) {
-                                std::string wikiName = item ? item->name : std::to_string(bit.id);
-                                OpenURL(WikiURL(wikiName));
-                            }
-                            ImGui::EndPopup();
-                        }
-                        ImGui::PopID();
-                    } else {
-                        std::string lbl = item ? item->name : "ID " + std::to_string(bit.id);
-                        ImVec4 col = isDone ? ImVec4(0.8f,0.8f,0.8f,1) : ImVec4(0.4f,0.4f,0.4f,1);
-                        ImGui::TextColored(col, "%s", lbl.c_str());
-                    }
-                } else if (bit.type == "Text") {
-                    ImVec4 col = isDone ? ImVec4(0.4f,1.0f,0.4f,1) : ImVec4(0.5f,0.5f,0.5f,1);
-                    ImGui::TextColored(col, "%s", bit.text.c_str());
-                }
+                ImVec4 col = isDone ? ImVec4(0.4f,1.0f,0.4f,1) : ImVec4(0.55f,0.55f,0.55f,1);
+                // Strikethrough-style: dim + bullet prefix when done, dash when not
+                const char* bullet = isDone ? "\xE2\x97\x8F " : "- ";
+                ImGui::TextColored(col, "%s%s", bullet, bit.text.c_str());
             }
-            ImGui::EndTable();
+        } else {
+            // Grid layout for icon-based achievements
+            std::string tableId = "bits##" + std::to_string(id);
+            if (ImGui::BeginTable(tableId.c_str(), 8)) {
+                for (size_t i = 0; i < ach->bits.size(); ++i) {
+                    ImGui::TableNextColumn();
+                    const auto& bit = ach->bits[i];
+
+                    bool isDone = false;
+                    if (accAch)
+                        isDone = std::find(accAch->bits.begin(), accAch->bits.end(),
+                                           (int)i) != accAch->bits.end();
+
+                    if (bit.type == "Item") {
+                        const Item* item = GW2Api::GetItem(bit.id);
+                        std::string texName = "ITEM_ICON_" + std::to_string(bit.id);
+                        void* tex = GetTexResource(texName);
+
+                        // If icon isn't loaded yet, request it asynchronously
+                        if (!tex && item && !item->icon.empty())
+                            GW2Api::RequestIconAsync(item->icon, texName);
+
+                        if (tex) {
+                            ImGui::PushID((int)i + id * 10000);
+                            ImVec4 tint = isDone ? ImVec4(1,1,1,1) : ImVec4(0.3f,0.3f,0.3f,1.f);
+                            ImGui::Image((ImTextureID)tex, ImVec2(32,32),
+                                         ImVec2(0,0), ImVec2(1,1), tint);
+
+                            if (ImGui::IsItemHovered()) {
+                                s_TooltipItemId = bit.id;
+                                s_TooltipItem   = item;
+                                s_TooltipTex    = tex;
+                            }
+
+                            if (ImGui::BeginPopupContextItem("##ctx")) {
+                                std::string wikiLbl = item
+                                    ? ("Open Wiki: " + item->name)
+                                    : ("Open Wiki: Item #" + std::to_string(bit.id));
+                                if (ImGui::MenuItem(wikiLbl.c_str())) {
+                                    std::string wikiName = item ? item->name : std::to_string(bit.id);
+                                    OpenURL(WikiURL(wikiName));
+                                }
+                                ImGui::EndPopup();
+                            }
+                            ImGui::PopID();
+                        } else {
+                            std::string lbl = item ? item->name : "ID " + std::to_string(bit.id);
+                            ImVec4 col = isDone ? ImVec4(0.8f,0.8f,0.8f,1) : ImVec4(0.4f,0.4f,0.4f,1);
+                            ImGui::TextColored(col, "%s", lbl.c_str());
+                        }
+                    } else if (bit.type == "Text") {
+                        ImVec4 col = isDone ? ImVec4(0.4f,1.0f,0.4f,1) : ImVec4(0.5f,0.5f,0.5f,1);
+                        ImGui::TextColored(col, "%s", bit.text.c_str());
+                    }
+                }
+                ImGui::EndTable();
+            }
         }
     }
 

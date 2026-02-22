@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cctype>
 #include <algorithm>
+#include <unordered_set>
 #include <windows.h>
 
 using json = nlohmann::json;
@@ -20,6 +21,7 @@ namespace GW2Api {
     std::mutex                         s_Mutex;
     std::atomic<bool>                  s_LoadingAll{false};
     std::atomic<bool>                  s_Shutdown{false};
+    std::unordered_set<std::string>    s_QueuedIcons;  // texNames already queued for download
 
     void Shutdown() { s_Shutdown = true; }
 
@@ -415,6 +417,20 @@ namespace GW2Api {
         if (apiKey.empty()) return;
         std::thread([apiKey]() {
             if (!s_Shutdown) FetchAccountAchievements(apiKey);
+        }).detach();
+    }
+
+    void RequestIconAsync(const std::string& url, const std::string& texName) {
+        if (url.empty() || texName.empty() || s_Shutdown) return;
+        // Skip if already loaded
+        if (APIDefs && APIDefs->Textures_Get(texName.c_str())) return;
+        {
+            std::lock_guard<std::mutex> lock(s_Mutex);
+            if (s_QueuedIcons.count(texName)) return;
+            s_QueuedIcons.insert(texName);
+        }
+        std::thread([url, texName]() {
+            if (!s_Shutdown) EnsureIconCached(url, texName);
         }).detach();
     }
 

@@ -62,6 +62,10 @@ namespace GW2Api {
 
     void FetchAccountAchievementsAsync(const std::string& apiKey);
 
+    // Triggers an async download+load of a single icon if not already queued/loaded.
+    // Safe to call every frame; internally de-duplicates requests.
+    void RequestIconAsync(const std::string& url, const std::string& texName);
+
     void Shutdown();
 
     void LoadAchievementCache();
